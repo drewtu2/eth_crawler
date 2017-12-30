@@ -1,0 +1,57 @@
+- pydevp2p is pretty much dead, code base was inherited into py-evm which seems to 
+be the defacto python implementation at this point
+
+- Lightchain implementation in evm directory should provide base to study and work
+from
+- Discovery.py has a main function  - use this as as starting point.
+
+Links: 
+- Gitter: https://gitter.im/ethereum/py-evm
+- Github: https://github.com/ethereum/py-evm
+- Docs: http://py-evm.readthedocs.io/en/latest/
+
+### Lightchain
+
+- Creates Lightchain class has a Peer Pool
+  - Peer pool is responsible for maintaining a minimum number of connections 
+  - Peer pool maintains a list of the connected nodes. 
+  - Peer pool attempts to connect to new nodes by calling the `p2p.peer.handshake`
+function which will trickle down to 
+- Light Chain implementation seems to be running on the higher level TCP Network
+and makes calls down to the lower level UDP (Discovery) network (in theory). 
+
+*`get_nodes_to_connect`*
+  - The function that would interface witht he discovery protocol in order to find
+new nodes to connect to 
+  - Currently the code that interfaces with the Discovery Protocol is not written
+and the return values are hard coded in. List contains a list of nodes with good
+up time. 
+
+### Discovery.py
+- *A Kademlia-like protocol to discover RLPx nodes.*
+- DiscoveryProtocol inherits from asyncio.DatagramProtocol (i.e. its a UDP network 
+protocol)
+- Main function contains the actual boostrap uris for the mainnet (line 293-305)
+- 
+
+### Crawler.py
+- Modified verision of the discovery protocol
+- Also uses a modified version of the kademlia protocol in the home level directory
+
+#### Network Mapping
+- When we lookup nodes and have them returned to us, insteaad of only adding
+the closest `k_bucket` nodes to our nodes to ask, add them all! This way we 
+discover everyone in the network. 
+  - *This is not guarenteed to return everyone in the newtork if there is a lot of 
+overlap in the closest nodes*.To ensure that we've gotten everyone in the network
+we should keep looking up random nodes until we do not get ANY new nodes back from 
+the lookup. 
+- We're faced with a limitation that people will only be sending us the 16 closest 
+nodes to the node we've asked them for, so we will have to continually poll 
+them for more unique addressess until they stop sending us any unique addresses. 
+
+#### Discovering a single node
+- Once we have a list of people we want to communicate with, we can begin searching 
+for whether people in the network know that person exists. 
+- Given a list of people, constantly ping them with a find node request until 
+they return the node we're searching for. 
