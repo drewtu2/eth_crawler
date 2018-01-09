@@ -1,4 +1,4 @@
-import kademlia
+from evm.p2p import kademlia
 import logging
 from typing import (
         Any,
@@ -54,10 +54,10 @@ class CrawlerDb():
         # Process the response and add it to the correct place 
         try:
             if str(node) in self.node_neighbors:
-                logging.info("%s already exists....", str(node))
+                logging.debug("%s already exists....", str(node))
                 self.node_neighbors[str(node)] += _exclude_if_exists(payload)
             else:
-                logging.info("%s doesn't exist. creating...", str(node))
+                logging.debug("%s doesn't exist. creating...", str(node))
                 self.node_neighbors[str(node)] = _exclude_if_exists(payload)
         except KeyError as e:
             logging.error(e)
