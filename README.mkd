@@ -1,0 +1,8 @@
+# eth-crawler
+
+## Setup
+1. Clone Repo
+2. Run the setup script `./setup.sh`. The setup script will produce a python
+virtual envirnoment called `venv` that will have the necessary python dependencies
+installed.
+3. Enter the virtual environment by running `source venv/bin/activate`
