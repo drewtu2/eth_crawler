@@ -87,6 +87,10 @@ class Crawler(discovery.DiscoveryProtocol):
     async def crawl(self):
         logger.debug("Started Crawl")
         await self.kademlia.crawl()
+    async def targeted_crawl(self):
+        logger.debug("Started Targted Crawl")
+        a_node = kademliaCrawler.random_node()
+        await self.kademlia.targeted_crawl(a_node)
     
 
 if __name__ == "__main__":
@@ -121,7 +125,8 @@ if __name__ == "__main__":
     loop.run_until_complete(crawler.bootstrap())
 
     # There's no need to wait for crawl because we run_forever().
-    mytask = asyncio.ensure_future(crawler.crawl())
+    #mytask = asyncio.ensure_future(crawler.crawl())
+    mytask = asyncio.ensure_future(crawler.targeted_crawl())
 
     # This helps when debugging asyncio issues.
     # task_monitor = asyncio.ensure_future(show_tasks())

@@ -30,7 +30,13 @@ from eth_keys import (
     keys,
 )
 
+from evm.constants import (
+    UINT_255_MAX,
+    UINT_256_CEILING,
+)
+
 from evm.utils.keccak import keccak
+import evm.utils.numeric
 from evm.utils.numeric import (big_endian_to_int, int_to_big_endian)
 
 
@@ -85,7 +91,7 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
             return kademlia.sort_by_distance(nodes_to_ask, node_id)[:kademlia.k_find_concurrency]
 
         # Get all of the nodes in our list, not just the closest k_bucket nodes
-        closest = self.routing.neighbours(node_id, None)
+        closest = self.routing.neighbours(node_id)
         self.logger.debug("starting lookup; initial neighbours: {}".format(closest))
         nodes_to_ask = _exclude_if_asked(closest)
         while nodes_to_ask:
@@ -136,14 +142,90 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
         
         self.logger.info("Crawled newtork... {} nodes found...".format(len(known_nodes)))
         return known_nodes
-    
-    def node_exists(self):
-        """
-        Returns when every node in the network knows about a given node_id
-        """
-        pass
-            
 
+    async def targeted_crawl(self, remote: kademlia.Node) -> List[kademlia.Node]:
+
+        async def _find_node(node_id: int):
+            """
+            Sends a _find_node request to a remote node searching for a particular 
+            node id. Returns all of the nodes given in the response. 
+            """
+            self.wire.send_find_node(remote, node_id)
+            candidates = await self.wait_neighbours(remote)
+            if len(candidates) == 0:
+                self.logger.debug("got no candidates from {}, returning".format(remote))
+            return candidates
+#            candidates = [c for c in candidates if c not in nodes_seen]
+#            self.logger.debug("got {} new candidates".format(len(candidates)))
+#            # Add new candidates to nodes_seen so that we don't attempt to bond with failing ones
+#            # in the future.
+#            nodes_seen.update(candidates)
+#            bonded = await asyncio.gather(*[self.bond(c) for c in candidates])
+#            self.logger.debug("bonded with {} candidates".format(bonded.count(True)))
+#            return [c for c in candidates if bonded[candidates.index(c)]]
+
+        DistanceResult = Dict[int, Set([kademlia.Node])]
+        def recurse_step(interest_low: DistanceResult, interest_high: DistanceResult):
+            """
+            {
+                "distance": int,
+                "neighbours": Set([kademlia.Node])
+            }
+            :d_start: The closest distance to the remote node
+            :interest_high: The furthest distance from the remote node
+            """
+           
+            d_interest = (interest_low["distance"] + interest_high["distance"])/2
+            interest_result = {
+                "distance": d_interest,
+                "neighbours": set(_find_node(d_interest))
+            }
+            disjoint_up = this_iteraiton.isdisjoint(interest_high["neighbours"])
+            disjoint_down = this_iteraiton.isdisjoint(interest_low["neighbours"])
+
+            if not disjoint_up and not disjoint_down:
+                # This is a BASE CASE
+                # We overlap completely with both bounds. return this iteraiton. 
+                return interest_result["neighbours"]
+            elif disjoint_up and not disjoint_down:
+                # Overlapped bottom, but not top: check top 
+                # Check [d_interst, interest_high]
+                return interest_result["neighbours"].update(\
+                        recurse_step(interest_result, interest_high))
+            elif not disjoint_up and disjoint_down:
+                # Overlapped top, but not bottom: check bottom 
+                # Check [interest_low, interest_result]
+                return interest_result["neighbours"].update(\
+                        recurse_step(interest_low, interest_result))
+            else:
+                # Overlapped neither. search both. 
+                return interest_result["neighbours"].update(\
+                        recurse_step(interest_low, interest_result),\
+                        recurse_step(interest_result, interest_high))
+        
+        furthest_node = {"distance": _max_distance_to_node(), "neighbours": set(_find_node(_max_distance_to_node()))}
+
+        closest_node = {\
+            "distance": 0,\
+            "neighbours": set(_find_node(0))}
+
+        return recurse_step(closest_node, furthest_node)
+
+    def _node_from_distance(self, distance: int) -> int:
+        """
+        Returns the node id exaclty distance away from this node. Distance is 
+        based on the XOR metric.
+        """
+        return self.id ^ distance
+
+def _max_distance_to_node() -> int:
+    """
+    Returns the maximum possible distance to this_node 
+    Distance is based on the XOR metric, therefore, max distance is the 
+    inverse of the node id which is equal to a number that is all 1's the 
+    size of node id. 
+    """
+    return UINT_256_MAX
 
 def random_pubkey():
     """
