@@ -55,3 +55,47 @@ them for more unique addressess until they stop sending us any unique addresses.
 for whether people in the network know that person exists. 
 - Given a list of people, constantly ping them with a find node request until 
 they return the node we're searching for. 
+
+
+# New Crawler
+
+Given the maximum XOR distance you can get from a number, begin searching. 
+
+Search the node at the maximum distance, `dmax`
+Search the node at `dmax/2`
+
+If any nodes overlap, continue searching at `dmax/(2**n)`
+If no nodes overlap, search at `dmax/(2**n) + dmax/(2**(n+1))`
+
+Keep searching midpoints of boundaries until all exhausted. 
+
+
+*When performing bitwise operations, becareful of signs!*
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
