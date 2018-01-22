@@ -13,6 +13,7 @@ from typing import (  # noqa: F401
     Callable,
     Dict,
     List,
+    NewType,
     Set,
     Sized,
     Tuple,
@@ -31,7 +32,7 @@ from eth_keys import (
 )
 
 from evm.constants import (
-    UINT_255_MAX,
+    UINT_256_MAX,
     UINT_256_CEILING,
 )
 
@@ -46,6 +47,9 @@ if TYPE_CHECKING:
     from evm.p2p.discovery import DiscoveryProtocol  # noqa: F401
 
 from evm.p2p import kademlia
+
+
+NewType('DistanceResult', Dict[int, Set[kademlia.Node]])
 
 class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
     logger = logging.getLogger("KademliaCrawlerProtocol")
@@ -150,6 +154,8 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
             Sends a _find_node request to a remote node searching for a particular 
             node id. Returns all of the nodes given in the response. 
             """
+            self.logger.debug("Searching for node: %d".format(node_id))
+
             self.wire.send_find_node(remote, node_id)
             candidates = await self.wait_neighbours(remote)
             if len(candidates) == 0:
@@ -164,8 +170,9 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
 #            self.logger.debug("bonded with {} candidates".format(bonded.count(True)))
 #            return [c for c in candidates if bonded[candidates.index(c)]]
 
-        DistanceResult = Dict[int, Set([kademlia.Node])]
-        def recurse_step(interest_low: DistanceResult, interest_high: DistanceResult):
+
+        #def recurse_step(interest_low, interest_high):
+        def recurse_step(interest_low: 'DistanceResult', interest_high: 'DistanceResult'):
             """
             {
                 "distance": int,
@@ -202,9 +209,13 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
                 return interest_result["neighbours"].update(\
                         recurse_step(interest_low, interest_result),\
                         recurse_step(interest_result, interest_high))
-        
-        furthest_node = {"distance": _max_distance_to_node(), "neighbours": set(_find_node(_max_distance_to_node()))}
-
+       
+        self.logger.debug("Running targeted_crawl")
+        furthest_node = {
+                "distance": _max_distance_to_node(), 
+                "neighbours": set(_find_node(_max_distance_to_node()))
+                }
+        await print(furthest_node)
         closest_node = {\
             "distance": 0,\
             "neighbours": set(_find_node(0))}

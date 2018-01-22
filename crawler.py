@@ -111,7 +111,7 @@ if __name__ == "__main__":
 
     logger = logging.getLogger("crawler")
     #logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s', filename="discoverylog.log")
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
 
