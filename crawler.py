@@ -45,6 +45,7 @@ import crawlerdb
 # Moved to boostrap nodes to a different file to keep this cleaner
 import bootstrap
 
+import mylogger
 
 class Crawler(discovery.DiscoveryProtocol):
     """A Kademlia-like protocol to discover RLPx nodes."""
@@ -88,10 +89,21 @@ class Crawler(discovery.DiscoveryProtocol):
         logger.debug("Started Crawl")
         await self.kademlia.crawl()
     async def targeted_crawl(self):
-        logger.debug("Started Targted Crawl")
-        a_node = kademliaCrawler.random_node()
-        await self.kademlia.targeted_crawl(a_node)
+        logger.info("Started Targted Crawl")
+        random_node = kademliaCrawler.random_node()
+
+        # We can only ask someone we're bonded to. 
+        node = self.kademlia.routing.neighbours(random_node.id)[0]
+
+        await self.kademlia.targeted_crawl(node)
     
+def crawl_complete(future):
+    logger = logging.getLogger("CrawlerProto")
+
+    if future.exception():
+        logger.error(future.exception())
+    else:
+        logger.info(future.result())
 
 if __name__ == "__main__":
     async def show_tasks():
@@ -111,7 +123,10 @@ if __name__ == "__main__":
 
     logger = logging.getLogger("crawler")
     #logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s', filename="discoverylog.log")
-    logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=logging.INFO , format='%(levelname)s: %(message)s')
+
+    mylogger.config_logs()
+
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
 
@@ -127,9 +142,10 @@ if __name__ == "__main__":
     # There's no need to wait for crawl because we run_forever().
     #mytask = asyncio.ensure_future(crawler.crawl())
     mytask = asyncio.ensure_future(crawler.targeted_crawl())
+    mytask.add_done_callback(crawl_complete)
 
     # This helps when debugging asyncio issues.
-    # task_monitor = asyncio.ensure_future(show_tasks())
+    task_monitor = asyncio.ensure_future(show_tasks())
 
     try:
         loop.run_forever()
@@ -140,7 +156,7 @@ if __name__ == "__main__":
         print(crawler.mydb)
         pass
 
-    # task_monitor.set_result(None)
+    task_monitor.set_result(None)
     crawler.stop()
-    # logger.info("Pending tasks at exit: {}".format(asyncio.Task.all_tasks(loop)))
+    logger.info("Pending tasks at exit: {}".format(asyncio.Task.all_tasks(loop)))
     loop.close()

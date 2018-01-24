@@ -149,12 +149,13 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
 
     async def targeted_crawl(self, remote: kademlia.Node) -> List[kademlia.Node]:
 
-        async def _find_node(node_id: int):
+        async def _find_node_at_distance(distance: int):
             """
-            Sends a _find_node request to a remote node searching for a particular 
-            node id. Returns all of the nodes given in the response. 
+            Sends a find_node request to the remote node at a given distance from
+            the node we're targeting. Returns all of the nodes given in the response. 
             """
-            self.logger.debug("Searching for node: %d".format(node_id))
+            node_id = _node_at_distance(remote, distance)
+            self.logger.debug("Searching for node: %d", node_id)
 
             self.wire.send_find_node(remote, node_id)
             candidates = await self.wait_neighbours(remote)
@@ -172,7 +173,7 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
 
 
         #def recurse_step(interest_low, interest_high):
-        def recurse_step(interest_low: 'DistanceResult', interest_high: 'DistanceResult'):
+        async def recurse_step(interest_low: 'DistanceResult', interest_high: 'DistanceResult'):
             """
             {
                 "distance": int,
@@ -182,13 +183,19 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
             :interest_high: The furthest distance from the remote node
             """
            
-            d_interest = (interest_low["distance"] + interest_high["distance"])/2
-            interest_result = {
-                "distance": d_interest,
-                "neighbours": set(_find_node(d_interest))
-            }
-            disjoint_up = this_iteraiton.isdisjoint(interest_high["neighbours"])
-            disjoint_down = this_iteraiton.isdisjoint(interest_low["neighbours"])
+            d_interest = int((interest_low["distance"] + interest_high["distance"])/2)
+
+            self.logger.info(
+                    "Performing Recursive Search...\n" + 
+                    "Max Distance: {}\n".format(interest_high["distance"]) + 
+                    "Mid Distance: {}\n".format(d_interest) + 
+                    "Min Distance: {}\n".format(interest_low["distance"]))
+            
+            interest_result = make_distanceResult(d_interest, 
+                    await _find_node_at_distance(d_interest))
+
+            disjoint_up = interest_result["neighbours"].isdisjoint(interest_high["neighbours"])
+            disjoint_down = interest_result["neighbours"].isdisjoint(interest_low["neighbours"])
 
             if not disjoint_up and not disjoint_down:
                 # This is a BASE CASE
@@ -198,36 +205,33 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
                 # Overlapped bottom, but not top: check top 
                 # Check [d_interst, interest_high]
                 return interest_result["neighbours"].update(\
-                        recurse_step(interest_result, interest_high))
+                        await recurse_step(interest_result, interest_high))
             elif not disjoint_up and disjoint_down:
                 # Overlapped top, but not bottom: check bottom 
                 # Check [interest_low, interest_result]
                 return interest_result["neighbours"].update(\
-                        recurse_step(interest_low, interest_result))
+                        await recurse_step(interest_low, interest_result))
             else:
                 # Overlapped neither. search both. 
-                return interest_result["neighbours"].update(\
+                recurse_tasks = [
                         recurse_step(interest_low, interest_result),\
-                        recurse_step(interest_result, interest_high))
-       
-        self.logger.debug("Running targeted_crawl")
-        furthest_node = {
-                "distance": _max_distance_to_node(), 
-                "neighbours": set(_find_node(_max_distance_to_node()))
-                }
-        await print(furthest_node)
-        closest_node = {\
-            "distance": 0,\
-            "neighbours": set(_find_node(0))}
+                        recurse_step(interest_result, interest_high)]
+                responses = await asyncio.gather(*recurse_tasks)
+                return interest_result["neighbours"].update(responses)
+        
+        furthest_node = make_distanceResult(_max_distance_to_node(), 
+                await _find_node_at_distance(_max_distance_to_node()))
+        closest_node = make_distanceResult(0, 
+                await _find_node_at_distance(0))
 
-        return recurse_step(closest_node, furthest_node)
+        return await recurse_step(closest_node, furthest_node)
 
-    def _node_from_distance(self, distance: int) -> int:
-        """
-        Returns the node id exaclty distance away from this node. Distance is 
-        based on the XOR metric.
-        """
-        return self.id ^ distance
+def _node_at_distance(node: kademlia.Node, distance: int) -> int:
+    """
+    Returns the node id exaclty distance away from a given id. Distance is 
+    based on the XOR metric.
+    """
+    return node.id ^ distance
 
 def _max_distance_to_node() -> int:
     """
@@ -258,3 +262,13 @@ def random_node(nodeid=None):
         node.id = nodeid
     return node
 
+def make_distanceResult(distance: int, neighbours: kademlia.Node):
+    """
+    Returns the distance result of a given distance and neighbour
+    """
+
+    result = {\
+        "distance": distance,\
+        "neighbours": set(neighbours)}
+
+    return result
