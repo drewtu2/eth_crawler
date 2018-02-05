@@ -142,6 +142,7 @@ if __name__ == "__main__":
     # There's no need to wait for crawl because we run_forever().
     #mytask = asyncio.ensure_future(crawler.crawl())
     mytask = asyncio.ensure_future(crawler.targeted_crawl())
+    
     mytask.add_done_callback(crawl_complete)
 
     # This helps when debugging asyncio issues.

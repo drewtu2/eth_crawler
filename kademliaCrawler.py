@@ -47,6 +47,8 @@ if TYPE_CHECKING:
     from evm.p2p.discovery import DiscoveryProtocol  # noqa: F401
 
 from evm.p2p import kademlia
+import sys
+import traceback 
 
 
 NewType('DistanceResult', Dict[int, Set[kademlia.Node]])
@@ -149,6 +151,28 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
 
     async def targeted_crawl(self, remote: kademlia.Node) -> List[kademlia.Node]:
 
+        def print_neighbours_list(low, searched, high):
+            def _get_neighbour(result, index):
+                if index >= len(result["neighbours"]):
+                    return ""
+                else:
+                    node = list(result["neighbours"])[index]
+                    #return str(node) + " (" + str(hex(_xor_distance(node.id, remote.id))) + ")"
+                    return str(node) 
+        
+            result_lengths = [len(x["neighbours"]) for x in [low, searched, high]]
+        
+            print(header_string("Search Result"))
+        
+            print("Low" + " " * 29 + "\t Searched " + " " * 29 + "\t High")
+            for index in range(0, max(result_lengths) - 1):
+                low_n = _get_neighbour(low, index)
+                searched_n = _get_neighbour(searched, index)
+                high_n = _get_neighbour(high, index)
+                
+                print(low_n + "\t" + searched_n + "\t" + high_n)
+            print()
+
         async def _find_node_at_distance(distance: int):
             """
             Sends a find_node request to the remote node at a given distance from
@@ -160,7 +184,8 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
             self.wire.send_find_node(remote, node_id)
             candidates = await self.wait_neighbours(remote)
             if len(candidates) == 0:
-                self.logger.debug("got no candidates from {}, returning".format(remote))
+                self.logger.warning("got no candidates from {}, returning".format(remote))
+
             return candidates
 #            candidates = [c for c in candidates if c not in nodes_seen]
 #            self.logger.debug("got {} new candidates".format(len(candidates)))
@@ -183,48 +208,79 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
             :interest_high: The furthest distance from the remote node
             """
            
-            d_interest = int((interest_low["distance"] + interest_high["distance"])/2)
+            d_interest = int((interest_low["distance"] + interest_high["distance"])//2)
 
             self.logger.info(
                     "Performing Recursive Search...\n" + 
-                    "Max Distance: {}\n".format(interest_high["distance"]) + 
-                    "Mid Distance: {}\n".format(d_interest) + 
-                    "Min Distance: {}\n".format(interest_low["distance"]))
+                    "Max Distance: {}\n".format(hex(interest_high["distance"])) + 
+                    "Mid Distance: {}\n".format(hex(d_interest)) + 
+                    "Min Distance: {}".format(hex(interest_low["distance"])))
+            
+            if (interest_high["distance"] == d_interest):
+                self.logger.warning("Error... high = mid\n")
+                print_neighbours_list(interest_low, interest_high, interest_high)
+                _compare_nodes_at_distance(remote, interest_low["distance"], interest_high["distance"])
+                return interest_high["neighbours"]
+            elif (interest_low["distance"] == d_interest):
+                self.logger.warning("Error... low = mid\n")
+                print_neighbours_list(interest_low, interest_low, interest_high)
+                _compare_nodes_at_distance(remote, interest_low["distance"], interest_high["distance"])
+                return interest_low["neighbours"]
             
             interest_result = make_distanceResult(d_interest, 
                     await _find_node_at_distance(d_interest))
 
+            print_neighbours_list(interest_low, interest_result, interest_high)
             disjoint_up = interest_result["neighbours"].isdisjoint(interest_high["neighbours"])
             disjoint_down = interest_result["neighbours"].isdisjoint(interest_low["neighbours"])
 
             if not disjoint_up and not disjoint_down:
                 # This is a BASE CASE
                 # We overlap completely with both bounds. return this iteraiton. 
+                self.logger.info("Hit base case!\n")
                 return interest_result["neighbours"]
             elif disjoint_up and not disjoint_down:
                 # Overlapped bottom, but not top: check top 
                 # Check [d_interst, interest_high]
-                return interest_result["neighbours"].update(\
+                self.logger.info("Overlapped bottom, but not top - Search up!\n")
+                interest_result["neighbours"].update(\
                         await recurse_step(interest_result, interest_high))
+                return interest_result["neighbours"]
             elif not disjoint_up and disjoint_down:
                 # Overlapped top, but not bottom: check bottom 
                 # Check [interest_low, interest_result]
-                return interest_result["neighbours"].update(\
+                self.logger.info("Overlapped top, but not bottom - Search down!\n")
+                
+                interest_result["neighbours"].update(\
                         await recurse_step(interest_low, interest_result))
+                return interest_result["neighbours"]
             else:
                 # Overlapped neither. search both. 
-                recurse_tasks = [
-                        recurse_step(interest_low, interest_result),\
-                        recurse_step(interest_result, interest_high)]
-                responses = await asyncio.gather(*recurse_tasks)
-                return interest_result["neighbours"].update(responses)
-        
+                #recurse_tasks = [
+                #        recurse_step(interest_low, interest_result),\
+                #        recurse_step(interest_result, interest_high)]
+                #responses = await asyncio.gather(*recurse_tasks)
+                self.logger.info("No Overalp: search both\n")
+                
+                responses = await recurse_step(interest_low, interest_result)
+                responses.update(await recurse_step(interest_result, interest_high))
+                interest_result["neighbours"].update(responses)
+                return interest_result["neighbours"]
+
         furthest_node = make_distanceResult(_max_distance_to_node(), 
                 await _find_node_at_distance(_max_distance_to_node()))
         closest_node = make_distanceResult(0, 
                 await _find_node_at_distance(0))
+        try:
+            addr_book = await recurse_step(closest_node, furthest_node)
+        except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            traceback.print_tb(exc_tb)
+            print(e)
+        finally:
+            addr_book = set()
+        return addr_book
 
-        return await recurse_step(closest_node, furthest_node)
 
 def _node_at_distance(node: kademlia.Node, distance: int) -> int:
     """
@@ -232,6 +288,42 @@ def _node_at_distance(node: kademlia.Node, distance: int) -> int:
     based on the XOR metric.
     """
     return node.id ^ distance
+
+def _xor_distance(d1: int, d2: int) -> int:
+    return d1 ^ d2
+
+def _compare_nodes_at_distance(node: kademlia.Node, distance1: int, distance2: int):
+    """
+    Prints some information about the nodes at two distances
+    """
+    def _gen_node_info(distance):
+        """
+        Returns a dictionary with information about the node at a given distance
+        """
+        node_info = {
+            # The id of the node at a given distance.
+            "id": _node_at_distance(node, distance),
+            "distance": distance
+        }
+        return node_info
+    
+    def _param_2_str(param: str, d1, d2) -> str:
+        str1 = param + "1:" + str(hex(d1))
+        str2 = param + "2:" + str(hex(d2))
+        return str1 + "\n" + str2
+    
+    node_d1 = _gen_node_info(distance1)
+    node_d2 = _gen_node_info(distance2)
+    
+    print(header_string("Node Comparison")) 
+    print(_param_2_str("XOR Distance", node_d1["distance"], node_d2["distance"]))
+    print()
+    print("Remote Node:", str(hex(node.id)))
+    print(_param_2_str("Node Id", node_d1["id"], node_d2["id"]))
+    
+    print("XOR distance differences:", str(hex(abs(node_d1["distance"] - node_d2["distance"]))))
+    print("XOR distance of node ids:", str(hex(_xor_distance(node_d1["id"], node_d2["id"]))))
+    print()
 
 def _max_distance_to_node() -> int:
     """
@@ -262,7 +354,7 @@ def random_node(nodeid=None):
         node.id = nodeid
     return node
 
-def make_distanceResult(distance: int, neighbours: kademlia.Node):
+def make_distanceResult(distance: int, neighbours: List[kademlia.Node]):
     """
     Returns the distance result of a given distance and neighbour
     """
@@ -270,5 +362,33 @@ def make_distanceResult(distance: int, neighbours: kademlia.Node):
     result = {\
         "distance": distance,\
         "neighbours": set(neighbours)}
+    
+    if neighbours == None:
+        print("\n" * 3)
+        print("Error: result is nonetype")
+        print("\n" * 3)
 
     return result
+
+def header_string(header: str) -> str:
+    """
+    Takes a string and returns a string with 100 stars wrapping it and the
+    given string centered in the middle
+    Ex. 
+    ***** .... ****
+    *  my string  *
+    ***** .... ****
+    """
+    line_len = 100
+    stars = 2
+    spaces_per_side = " " * ((line_len - stars - len(header)) // 2)
+    if len(header) % 2 == 0:
+        odd_space = ""
+    else:
+        odd_space = " "
+
+    return ("*" * line_len + "\n" 
+    + "*" + spaces_per_side + header + spaces_per_side + odd_space + "*\n"
+    + "*" * line_len + "\n")
+
+
