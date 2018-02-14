@@ -1,45 +1,6 @@
 import logging
+from collections import deque
 
-class Node:
-    """
-    A Node in a binary tree
-    """
-    def __init__(self, val):
-        self.l = None   # Node to the left
-        self.r = None   # Node to the right
-        self.v = val    # The bit represented by this node a 1 or 0
-        self.prefix = [] # The path value to this node. 
-                        # ( each index represents a node)
-        self.marked = False;
-        self.end = False
-    
-    def is_stump(self):
-        """
-        Returns true if this node is a stump
-        """
-        return self.l is None or self.r is None
-    
-    def get_stump_path(self):
-        """
-        Returns the path to the node of a stump. 
-        """
-        if self.l is None:
-            self.prefix.append(0)
-        elif self.r is None:
-            self.prefix.append(1)
-        else:
-            return None
-        return self.prefix
-    def __str__(self, level=0):
-        if self.end:
-            ret = "\t"*(level - 1) + "(" + repr(self.v) + ")\n"
-        else:
-            ret = "\t"*level + repr(self.v) + "\n"
-            if self.l is not None:
-                ret += self.l.__str__(level+1)
-            if self.r is not None:
-                ret += self.r.__str__(level+1)
-        return ret
         
 
 class Tree:
@@ -74,36 +35,23 @@ class Tree:
                 logging.debug("node none at depth: {}".format(depth))
 
             # This node is the last node
-            if depth == -1:
+            if depth == 0:
                 child_node = Node(val)
                 child_node.end = True
                 node.l = child_node 
-            
             # Node goes left
             elif utils.nth_bit(val, depth) == self.LEFT:
-                logging.debug("{} at bit {} is {}".format(val, depth, self.LEFT))
-                # Add to left
-                if node.l is None:
-                    child_node = Node(self.LEFT)
-                else:
-                    child_node = node.l
-                child_node.prefix = list(node.prefix)
-                child_node.prefix.append(self.LEFT)
-                node.l = _add(child_node, depth - 1)
+                node = _add_direction(node, depth, self.LEFT)
             # Node goes right
             else:
-                logging.debug("{} at bit {} is {}".format(val, depth, self.RIGHT))
-                # Add to right 
-                if node.r is None:
-                    child_node = Node(self.RIGHT)
-                else:
-                    child_node = node.r
-                child_node.prefix = list(node.prefix)
-                child_node.prefix.append(self.RIGHT)
-                node.r = _add(child_node, depth - 1)
+                node = _add_direction(node, depth, self.RIGHT)
+            
             return node
         
         def _add_direction(node, depth, direction):
+            """
+            Adds the value as a child node in the given direction
+            """
             logging.debug("{} at bit {} is {}".format(val, depth, direction))
             
             if direction == self.LEFT:
@@ -111,15 +59,23 @@ class Tree:
             else:
                 targeted_child = node.r
 
-            # Add to left
             if targeted_child is None:
                 targeted_child = Node(direction)
             targeted_child.prefix = list(node.prefix)
             targeted_child.prefix.append(direction)
-            node.l = _add(targeted_child, depth - 1)
+            
+            # TODO// REFACTOR this
+            if direction == self.LEFT:
+                node.l = _add(targeted_child, depth - 1)
+            else:
+                node.r = _add(targeted_child, depth - 1)
 
             return node
+        
         # Actual fx
+       
+        assert(val < 2**self.NUM_BITS)
+        
         if(self.root == None):
             self.root = Node('R')
         self.root = _add(self.root)
@@ -142,16 +98,16 @@ class Tree:
         # garbage collector will do this for us. 
         self.root = None
 
-    def closest_stump(self):
+    def highest_stump_node(self):
         """
          BFS on tree to find the highest stump. Stump is defined as a node with
          at least one missing child. ROOT is max height.
         """
 
-        visited, queue = set(), [self.root]
+        visited, queue = set(), deque([self.root])
         
         while queue:
-            vertex = queue.pop()
+            vertex = queue.popleft()
             
             if vertex.is_stump():
                 break
@@ -161,14 +117,79 @@ class Tree:
             queue.extend([vertex.l, vertex.r])
         
         return vertex
+    
+    def path_to_stump(self) -> int:
+        """
+        Returns a node id from the given stump.
+        If path to stump node is 110 and node 110-001 exists, path_to_stump 
+        will integer representation of 110-100 (110-1xx where x will be 0)
+        """
+        prefix = list(self.highest_stump_node().get_stump_path())
+        
+        num_bits_needed = self.NUM_BITS - len(prefix)
+        
+        prefix += [0] * num_bits_needed
+        logging.debug("Stump binary: {}".format(prefix))
+        # Prefix holds the array representation, convert to integer. 
+        return int("".join(map(str, prefix)), 2)
+
+class Node:
+    """
+    A Node in a binary tree
+    """
+    def __init__(self, val):
+        self.l = None   # Node to the left
+        self.r = None   # Node to the right
+        self.v = val    # The bit represented by this node a 1 or 0
+        self.prefix = [] # The path value to this node. 
+                        # ( each index represents a node)
+        self.marked = False;
+        self.end = False
+    
+    def is_stump(self):
+        """
+        Returns true if this node is a stump
+        """
+        return self.l is None or self.r is None
+    
+    def get_stump_path(self):
+        """
+        Returns the path to the node of a stump. 
+        """
+        temp_prefix = list(self.prefix)
+        
+        if self.l is None:
+            temp_prefix.append(0)
+        elif self.r is None:
+            temp_prefix.append(1)
+        else:
+            return None
+        return temp_prefix
+    
+    def __str__(self, level=0):
+        """
+        String representation
+        """
+        if self.end:
+            ret = "\t"*(level - 1) + "(" + repr(self.v) + ")\n"
+        else:
+            ret = "\t"*level + repr(self.v) + "\n"
+            if self.l is not None:
+                ret += self.l.__str__(level+1)
+            if self.r is not None:
+                ret += self.r.__str__(level+1)
+        return ret
 
 class utils():
+    """
+    Random helpers.
+    """
     @staticmethod
-    def nth_bit(num: int, bit_index: int) -> int:
+    def nth_bit(num: int, bit_number: int) -> int:
         """
         Returns the value of the bit_index'th bit in a given number
         """
-        return (num>>bit_index) & 1
+        return (num>>(bit_number - 1)) & 1
         
     @staticmethod
     def set_bit(v, index, x):
