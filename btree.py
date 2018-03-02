@@ -80,6 +80,10 @@ class Tree:
             self.root = Node('R')
         self.root = _add(self.root)
     
+    def add_list(self, list_of_nodes):
+        for node in list_of_nodes:
+            self.add(node)
+
     def find(self, val):
         if(self.root is not None):
             return self._find(val, self.root)
@@ -131,7 +135,9 @@ class Tree:
         prefix += [0] * num_bits_needed
         logging.debug("Stump binary: {}".format(prefix))
         # Prefix holds the array representation, convert to integer. 
-        return int("".join(map(str, prefix)), 2)
+        stump = int("".join(map(str, prefix)), 2) 
+        logging.info("Farthest stump is {}".format(stump))
+        return stump
 
 class Node:
     """

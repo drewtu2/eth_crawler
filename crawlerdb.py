@@ -11,6 +11,9 @@ from typing import (
 import pickle 
 
 class CrawlerDb():
+    """
+    Database stores a dictionary of all nodes we've seen
+    """
 
     def __init__(self):
         """
@@ -21,6 +24,7 @@ class CrawlerDb():
         }
         """
         self.node_neighbors = {}
+
     def __str__(self):
         this_string = ""
         for key in self.node_neighbors:
@@ -41,14 +45,14 @@ class CrawlerDb():
         """
         def _exclude_if_exists(nodes: List[Any]):
             """
-            Return a list of nodes that havnen't been discovered before
+            Return a list of node ids that havnen't been discovered before
             """
             if str(node) in self.node_neighbors:
                 current_known = self.node_neighbors[str(node)]
             else:
                 current_known = []
             
-            new_nodes = [node for node in nodes if node not in current_known]
+            new_nodes = [node.id for node in nodes if node.id not in current_known]
             return new_nodes
         
         # Process the response and add it to the correct place 
@@ -62,7 +66,11 @@ class CrawlerDb():
         except KeyError as e:
             logging.error(e)
             #print("Error adding " + str(node) + " details...")
+    
     def dump(self, dumpFile="neighbors.pickle"):
+        """
+        Dumps to a pickle file
+        """
         with open(dumpFile, "w") as fp:
             pickle.dump(self.node_neighbors, fp)
         logging.info("Wrote neighbors to file")

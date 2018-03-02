@@ -41,11 +41,13 @@ from evm.p2p import kademlia
 # Our modified version of kademlia protocol
 import kademliaCrawler
 import crawlerdb
+import btree
 
 # Moved to boostrap nodes to a different file to keep this cleaner
 import bootstrap
 
 import mylogger
+from pympler import tracker
 
 class Crawler(discovery.DiscoveryProtocol):
     """A Kademlia-like protocol to discover RLPx nodes."""
@@ -80,7 +82,7 @@ class Crawler(discovery.DiscoveryProtocol):
         try:
             self.mydb.add_response(node, discovery._extract_nodes_from_payload(nodes))
         except Exception as e:
-            print("Error in adding resposne: " + str(e))
+            self.logger.error("Error in adding resposne: " + str(e))
             self.logger.error(e)
 
         self.kademlia.recv_neighbours(node, discovery._extract_nodes_from_payload(nodes))
@@ -88,6 +90,7 @@ class Crawler(discovery.DiscoveryProtocol):
     async def crawl(self):
         logger.debug("Started Crawl")
         await self.kademlia.crawl()
+    
     async def targeted_crawl(self):
         logger.info("Started Targted Crawl")
         random_node = kademliaCrawler.random_node()
@@ -101,6 +104,7 @@ def crawl_complete(future):
     logger = logging.getLogger("CrawlerProto")
 
     if future.exception():
+        logger.error("Error in future...")
         logger.error(future.exception())
     else:
         logger.info(future.result())
@@ -121,11 +125,10 @@ if __name__ == "__main__":
     listen_port = 30303
     bootstrap_uris = bootstrap.bootstrap_uris
 
+    #mylogger.config_logs()
     logger = logging.getLogger("crawler")
     #logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s', filename="discoverylog.log")
     logging.basicConfig(level=logging.INFO , format='%(levelname)s: %(message)s')
-
-    mylogger.config_logs()
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
@@ -140,8 +143,10 @@ if __name__ == "__main__":
     loop.run_until_complete(crawler.bootstrap())
 
     # There's no need to wait for crawl because we run_forever().
-    #mytask = asyncio.ensure_future(crawler.crawl())
-    mytask = asyncio.ensure_future(crawler.targeted_crawl())
+    tr = tracker.SummaryTracker()
+    mytask = asyncio.ensure_future(crawler.crawl())
+    tr.print_diff() 
+    #mytask = asyncio.ensure_future(crawler.targeted_crawl())
     
     mytask.add_done_callback(crawl_complete)
 

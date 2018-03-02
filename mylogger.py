@@ -6,7 +6,7 @@ def config_logs():
     # Logfile
     logfolder = "logs/"
     logdate = datetime.datetime.now().strftime("%y-%m-%d_%H:%M") + "_"
-    logfile = "targeted_crawl.log"
+    logfile = "tree_crawl.log"
 
     logpath = logfolder + logfile
     #logpath = logfolder + logdate + logfile

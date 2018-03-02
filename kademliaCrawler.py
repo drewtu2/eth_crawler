@@ -40,16 +40,19 @@ from evm.utils.keccak import keccak
 import evm.utils.numeric
 from evm.utils.numeric import (big_endian_to_int, int_to_big_endian)
 
-
 # Workaround for import cycles caused by type annotations:
 # http://mypy.readthedocs.io/en/latest/common_issues.html#import-cycles
 if TYPE_CHECKING:
     from evm.p2p.discovery import DiscoveryProtocol  # noqa: F401
 
 from evm.p2p import kademlia
+
+# My Stuff for debuggin
 import sys
 import traceback 
-
+import btree 
+from pympler import summary, muppy, asizeof
+from pympler.classtracker import ClassTracker
 
 NewType('DistanceResult', Dict[int, Set[kademlia.Node]])
 
@@ -59,6 +62,12 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
     def __init__(self, node: kademlia.Node, wire: 'DiscoveryProtocol') -> None:
         super(KademliaCrawlerProtocol, self).__init__(node, wire)
         self.logger.debug("Kademlia Crawler Created")
+
+        self.tracker = ClassTracker()
+        self.myTree = btree.Tree(256)
+        self.tracker.track_object(self.myTree)
+
+
 
     async def bootstrap(self, bootstrap_nodes: List[kademlia.Node]) -> None:
         bonded = await asyncio.gather(*[self.bond(n) for n in bootstrap_nodes])
@@ -70,10 +79,10 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
     async def lookup(self, node_id: int, use_k_bucket = True) -> List[kademlia.Node]:
         """Lookup performs a network search for nodes close to the given target.
 
-        It approaches the target by querying nodes that are closer to it on each iteration.  The
-        given target does not need to be an actual node identifier.
+        It approaches the target by querying nodes that are closer to it on each 
+        iteration. The given target does not need to be an actual node identifier.
         """
-        self.logger.debug("Kademlia Crawler Lookup Initiated")
+        self.logger.info("Kademlia Crawler Lookup Initiated")
         nodes_asked = set()  # type: Set[Node]
         nodes_seen = set()   # type: Set[Node]
 
@@ -101,6 +110,10 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
         self.logger.debug("starting lookup; initial neighbours: {}".format(closest))
         nodes_to_ask = _exclude_if_asked(closest)
         while nodes_to_ask:
+            
+            summary.print_(summary.summarize(muppy.get_objects()))
+
+
             self.logger.debug("node lookup; querying {}".format(nodes_to_ask))
             nodes_asked.update(nodes_to_ask)
             results = await asyncio.gather(
@@ -116,32 +129,41 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
                 closest = kademlia.sort_by_distance(closest, node_id)
             nodes_to_ask = _exclude_if_asked(closest)
 
-        self.logger.info("lookup finished for {}: {}".format(node_id, closest))
+        self.logger.info("lookup finished for {}: {} nodes discovered".format(node_id, len(closest)))
         return closest
     
     async def crawl(self):
         """
         Continue to look up random nodes until no new nodes are discovered. 
         """
-        known_nodes = []
-        
         def _extract_new_nodes(nodes: List[kademlia.Node]) -> List[kademlia.Node]:
             """
             Returns a list of nodes that we havne't previously encountered
             """
-            return [node for node in nodes if node not in known_nodes]
+            return [node.id for node in nodes if node.id not in known_nodes]
         
+        known_nodes = [] # Will be a list of node ids
+
         # Populate our known nodes with nodes near us
         new_nodes = await self.lookup(self.this_node.id, False)
-        new_nodes = _extract_new_nodes(new_nodes)
+        new_nodes = _extract_new_nodes(new_nodes)   # Reduced to list of node ids
+        self.myTree.add_list([node for node in new_nodes])
         known_nodes += new_nodes
 
         while new_nodes is not []:
+
+            summary.print_(summary.summarize(muppy.get_objects()))
+            self.tracker.create_snapshot()
+            self.tracker.stats.print_summary()
+            print("Size of known nodes: " + str(asizeof.asizeof(known_nodes)))
+            
             self.logger.debug("In crawl loop... {} new nodes discovered...".format(len(new_nodes)))
             self.logger.info("{} total nodes discovered...".format(len(known_nodes)))
+            dump_new_nodes(known_nodes)
             try:
-                new_nodes = await self.lookup(random_node().id, False)
+                new_nodes = await self.lookup(self.myTree.path_to_stump(), False)
                 new_nodes = _extract_new_nodes(new_nodes)
+                self.myTree.add_list([node for node in new_nodes])
                 known_nodes += new_nodes
             except evm.p2p.kademlia.AlreadyWaiting as e:
                 self.logger.error(e)
@@ -391,4 +413,7 @@ def header_string(header: str) -> str:
     + "*" + spaces_per_side + header + spaces_per_side + odd_space + "*\n"
     + "*" * line_len + "\n")
 
+def dump_new_nodes(nodes):
+    with open("logs/nodes_log.log", "a+") as f:
+        f.write("Nodes discovered: {}\n".format(len(nodes)))
 
