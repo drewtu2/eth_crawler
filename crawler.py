@@ -47,7 +47,6 @@ import btree
 import bootstrap
 
 import mylogger
-from pympler import tracker
 
 class Crawler(discovery.DiscoveryProtocol):
     """A Kademlia-like protocol to discover RLPx nodes."""
@@ -143,15 +142,13 @@ if __name__ == "__main__":
     loop.run_until_complete(crawler.bootstrap())
 
     # There's no need to wait for crawl because we run_forever().
-    tr = tracker.SummaryTracker()
     mytask = asyncio.ensure_future(crawler.crawl())
-    tr.print_diff() 
     #mytask = asyncio.ensure_future(crawler.targeted_crawl())
     
     mytask.add_done_callback(crawl_complete)
 
     # This helps when debugging asyncio issues.
-    task_monitor = asyncio.ensure_future(show_tasks())
+    # task_monitor = asyncio.ensure_future(show_tasks())
 
     try:
         loop.run_forever()
@@ -162,7 +159,7 @@ if __name__ == "__main__":
         print(crawler.mydb)
         pass
 
-    task_monitor.set_result(None)
+    #task_monitor.set_result(None)
     crawler.stop()
     logger.info("Pending tasks at exit: {}".format(asyncio.Task.all_tasks(loop)))
     loop.close()

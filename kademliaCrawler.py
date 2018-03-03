@@ -67,7 +67,7 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
         self.myTree = btree.Tree(256)
         self.tracker.track_object(self.myTree)
 
-
+        self.MAX_CONCURRENT = 64;
 
     async def bootstrap(self, bootstrap_nodes: List[kademlia.Node]) -> None:
         bonded = await asyncio.gather(*[self.bond(n) for n in bootstrap_nodes])
@@ -86,19 +86,23 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
         nodes_asked = set()  # type: Set[Node]
         nodes_seen = set()   # type: Set[Node]
 
-        async def _find_node(node_id, remote):
-            self.wire.send_find_node(remote, node_id)
-            candidates = await self.wait_neighbours(remote)
-            if len(candidates) == 0:
-                self.logger.debug("got no candidates from {}, returning".format(remote))
-                return candidates
-            candidates = [c for c in candidates if c not in nodes_seen]
-            self.logger.debug("got {} new candidates".format(len(candidates)))
-            # Add new candidates to nodes_seen so that we don't attempt to bond with failing ones
-            # in the future.
-            nodes_seen.update(candidates)
-            bonded = await asyncio.gather(*[self.bond(c) for c in candidates])
-            self.logger.debug("bonded with {} candidates".format(bonded.count(True)))
+        async def _find_node(node_id, remote, semaphore):
+            async with semaphore:
+                self.wire.send_find_node(remote, node_id)
+                candidates = await self.wait_neighbours(remote)
+                
+                if len(candidates) == 0:
+                    self.logger.debug("got no candidates from {}, returning".format(remote))
+                    return candidates
+
+                candidates = [c for c in candidates if c not in nodes_seen]
+                self.logger.debug("got {} new candidates".format(len(candidates)))
+                # Add new candidates to nodes_seen so that we don't attempt to 
+                # bond with failing ones in the future.
+                nodes_seen.update(candidates)
+                bonded = await asyncio.gather(*[self.bond(c) for c in candidates])
+                self.logger.debug("bonded with {} candidates".format(bonded.count(True)))
+            
             return [c for c in candidates if bonded[candidates.index(c)]]
 
         def _exclude_if_asked(nodes):
@@ -109,15 +113,22 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
         closest = self.routing.neighbours(node_id)
         self.logger.debug("starting lookup; initial neighbours: {}".format(closest))
         nodes_to_ask = _exclude_if_asked(closest)
+        mySem = asyncio.Semaphore(value = self.MAX_CONCURRENT)
+        
         while nodes_to_ask:
             
-            summary.print_(summary.summarize(muppy.get_objects()))
-
+            #summary.print_(summary.summarize(muppy.get_objects()))
+            #print('Tasks count: ', len(asyncio.Task.all_tasks()))
+            #print('Active tasks count: ', len(
+            #[task for task in asyncio.Task.all_tasks() if not task.done()]))
 
             self.logger.debug("node lookup; querying {}".format(nodes_to_ask))
             nodes_asked.update(nodes_to_ask)
-            results = await asyncio.gather(
-                *[_find_node(node_id, n) for n in nodes_to_ask])
+
+            tasks = [_find_node(node_id, n, mySem) for n in nodes_to_ask];
+
+            results = await asyncio.gather(*tasks)
+            
             for candidates in results:
                 closest.extend(candidates)
             
@@ -146,24 +157,28 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
 
         # Populate our known nodes with nodes near us
         new_nodes = await self.lookup(self.this_node.id, False)
+        print("Size of new nodes pre strip: " + str(asizeof.asizeof(new_nodes)))
         new_nodes = _extract_new_nodes(new_nodes)   # Reduced to list of node ids
-        self.myTree.add_list([node for node in new_nodes])
+        print("Size of new nodes post strip: " + str(asizeof.asizeof(new_nodes)))
+        self.myTree.add_list(new_nodes)
+        print("Size of myTree: " + str(asizeof.asizeof(self.myTree)))
         known_nodes += new_nodes
 
         while new_nodes is not []:
 
             summary.print_(summary.summarize(muppy.get_objects()))
-            self.tracker.create_snapshot()
-            self.tracker.stats.print_summary()
-            print("Size of known nodes: " + str(asizeof.asizeof(known_nodes)))
-            
+            #self.tracker.create_snapshot()
+            #self.tracker.stats.print_summary()
+            #print("Size of known nodes: " + str(asizeof.asizeof(known_nodes)))
             self.logger.debug("In crawl loop... {} new nodes discovered...".format(len(new_nodes)))
             self.logger.info("{} total nodes discovered...".format(len(known_nodes)))
             dump_new_nodes(known_nodes)
+            #summary.print_(summary.summarize(muppy.get_objects()))
+            
             try:
                 new_nodes = await self.lookup(self.myTree.path_to_stump(), False)
                 new_nodes = _extract_new_nodes(new_nodes)
-                self.myTree.add_list([node for node in new_nodes])
+                self.myTree.add_list(new_nodes)
                 known_nodes += new_nodes
             except evm.p2p.kademlia.AlreadyWaiting as e:
                 self.logger.error(e)
