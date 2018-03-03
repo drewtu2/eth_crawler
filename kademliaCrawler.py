@@ -166,7 +166,7 @@ class KademliaCrawlerProtocol(kademlia.KademliaProtocol):
 
         while new_nodes is not []:
 
-            summary.print_(summary.summarize(muppy.get_objects()))
+            #summary.print_(summary.summarize(muppy.get_objects()))
             #self.tracker.create_snapshot()
             #self.tracker.stats.print_summary()
             #print("Size of known nodes: " + str(asizeof.asizeof(known_nodes)))
