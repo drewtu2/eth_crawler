@@ -30,7 +30,7 @@ mccabe==0.6.1
 multidict==3.3.2
 pkg-resources==0.0.0
 pluggy==0.6.0
-py==1.5.2
+py==1.10.0
 py-ecc==1.4.2
 -e git+https://github.com/ethereum/py-evm.git@c54c8c2bdc3feea45659e58b86bc7c58ab0ade38#egg=py_evm&subdirectory=../../py-evm
 pycodestyle==2.3.1
